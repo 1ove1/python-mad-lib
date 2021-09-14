@@ -1,0 +1,184 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+from sympy import *
+
+plt.rcParams["font.size"] = 18
+class Regression:
+    ''' Промежуточные данные '''
+    _YXm    = np.matrix(None)   # Y и X в одной матрице ([[Y], [X1], [X2]...])
+    _Ym     = np.matrix(None)   # Ym
+    _Xm     = np.matrix(None)   # Xm (с единичным отступом)
+    _E      = np.array(None)    # Отклонения
+    _Xcol   = {}                # Именование перменных X
+    _M      = 0                 # Число переменных
+
+    ''' Кожффициенты и регрессионная формула '''
+    _b      = np.array(None)    # Коэффициенты регрессии b
+    _frml_str   = ""            # Регрессионная Формула (в текстовом представлении)
+    _frml   = np.array(None)    # Регрессионная формула
+
+    ''' Регрессионная статистика '''
+    _R      = 0                 # Множественная регрессия R
+    _R2     = 0                 # R-квадрат
+    _R2norm = 0                 # Нормированый R-квадрат
+    _S      = 0                 # Стандартная ошибка
+    _N      = 0                 # Наблюдения
+
+    ''' Дисперсионный анализ '''
+    _disp_analyz = {"Регрессия": 0, "Остаток": 0, "Итого": 0}
+    _Df     = 0                 # Число степеней сводобы
+    _SS     = []                # Сумма квадратов регрессии
+    _MS     = []                # Среднее суммы квадратов регрессии
+    _F      = 0                 # Значение критерия фишера
+    _Fz     = 0                 # Значимость F
+
+    """ Параметры коэффициентов регрессии """
+    _SE     = []                # Стандартная ошибка
+    _var    = []                # Вариация
+    _t      = []                # t-статистика стьюдента
+
+    '''
+    ЗДЕСЬ ИНИЦИАЛИЗАЦИЯ КЛАССА
+    '''
+    
+    # инициализация
+    def __init__(self, Y, data, Xcol):
+        assert len(Y) == len(data)
+        print("***************************\n" + 
+              "Запуск анализа...")
+
+        # Матрицы исходных данных
+        N = len(Y)      
+        xlist = [np.ones(N)]
+        for row in Xcol:
+               xlist = np.append(xlist, [data[row]], axis = 0)
+        Xm = np.matrix(xlist)
+        Xm = Xm.transpose()
+        Ym = np.matrix(Y)
+
+        # Сохраняем результат
+        self._Xm = Xm
+        self._Ym = Ym
+        self._YXm = np.concatenate([Ym, Xm.T[1:]])
+        self._N = N
+        self._M = len(Xcol)
+        self._Df = N - len(Xcol) - 1
+        self._Xcol = Xcol
+
+        # Процедуры для анализа
+        self._initKoefAndFrml()
+        self._initRegrStat()
+        self._initDispAnalyz()
+
+
+
+    '''
+    ЗДЕСЬ ОПИСАНЫ ИНИЦИАЛИЗИРУЮЩИЕ ПРОЦЕДУРЫ
+    '''
+
+    # Кожффициенты и регрессионная формула
+    def _initKoefAndFrml(self):
+        print("***************************\n" + 
+              "Поиск коэффициентов и конечной формулы...\n")
+
+        # Находиим коэффициенты
+        # b = (X.T * X)^-1 * X.T * Y
+        tmpb = self._Ym.dot((np.linalg.inv(self._Xm.T * self._Xm) * self._Xm.T).T)
+
+        # помещаем коэфициенты в одномерный массив и выводим на экран
+        b = []
+        for i in range(tmpb[0].size):
+            print(f'b[{i}] = {tmpb[0, i]}')
+            b.append(tmpb[0, i])
+
+        # инициализация формулы (для вывода и вычислений)
+        frml = b[0]
+        frml_str = f'Yi   = {np.round(b[0], 3)}'
+        for i in range(1, len(self._Xcol) + 1):
+            frml += b[i] * self._Xm.T.A[i] 
+            frml_str += f' + {np.round(b[i],3)} * {self._Xcol[i - 1]}'
+        print(frml_str)
+
+        # сохранение
+        self._b = b
+        self._frml = frml
+        self._frml_str = frml_str
+    
+    # Регрессионная статистика
+    def _initRegrStat(self):
+        print("***************************\n" + 
+              "Регрессионная статистика...\n")
+
+        # Нахождение определителя коэффициента корреляции
+        r = pd.DataFrame(self._YXm.T).corr().style.background_gradient(cmap='coolwarm').set_precision(3)
+        r11 = pd.DataFrame(self._YXm[1:].T).corr().style.background_gradient(cmap='coolwarm').set_precision(3)
+        dr = np.linalg.det(r.data.to_numpy()); print('Опр. парн. коэф. корр.\t: ', dr)
+        dr11 = np.linalg.det(r11.data.to_numpy()); print('Опр. множ. коэф. корр.\t: ', dr11)
+
+        # Регрессионный анализ
+        R = (1 - dr / dr11)**0.5; print('Множ. регрессия R\t: ', np.round(R, 4))
+        R2 = R**2; print('Регрессия R-квадрат\t: ', np.round(R2, 4))
+        R2norm = 1 - (1 - R2) * (self._N - 1) / (self._N - self._M - 1) ; print('Нормированый R-квадрат\t: ', np.round(R2norm, 4))
+        E = self._Ym.A[0, :] - self._frml
+        S = (np.sum(E**2) / self._Df)**0.5; print('Сред. Отклон.\t\t: ', np.round(S, 4))
+
+        # Cохранение
+        self._R = R
+        self._R2 = R2
+        self._R2norm = R2norm
+        self._E = E
+        self._S = S
+        
+    # дисперсионный анализ
+    def _initDispAnalyz(self):
+        print("***************************\n" + 
+              "Дисперсионная статистика...\n")
+
+        var = self._S**2 * np.diag(np.linalg.pinv(np.dot(self._Xm.T,self._Xm)))
+        SE = np.sqrt(var)
+        t = abs(self._b / SE)
+
+        def out(arrval, name): 
+            for i in range(len(arrval)):
+                print('%s[b%d] = %f' % (name, i, arrval[i]))
+             
+        print(f'Вариация:'); out(var, 'Var')
+        print(f'Отклонение:'); out(SE, 'SE')
+        print(f'Коэффициенты стьюдента:'); out(t, 't')
+
+
+
+
+
+    '''
+    ЗДЕСЬ ФУНКЦИИ ДЛЯ ВЗАИМОДЕЙСТВИЯ С ПОЛЬЗОВАТЕЛЕМ
+    '''
+    # таблица регрессионной статистики
+    def getRegrStatTable(self):
+        dict = {'R':        ['Множественный R', np.round(self._R, 4)], 
+                'R2':       ['R-квадрат', np.round(self._R2, 4)], 
+                'R2scor':   ['Нормированный R-квадрат', np.round(self._R2norm, 4)], 
+                'S':        ['Стандартное ошибка', np.round(self._S, 4)],
+                'N':        ['Наблюдения', self._N]}
+        return pd.DataFrame(data = dict, index = ['Описание', 'Значение']).T
+
+    # график составленной регрессии
+    def getGraph(self):
+        #Graphic
+        fig, ax = plt.subplots(1)
+        fig.set_figwidth(15)
+        plt.ylabel('Y', fontsize=16); plt.xlabel(self._Xcol, fontsize=16)
+        ax.grid(); ax.set_title(self._frml_str)
+        ax.plot(self._frml); ax.plot(self._Ym.A[0, :], 'ro')
+
+        if (self._M == 1):
+            fig, ax = plt.subplots(1)
+            ax.grid()
+            ax.scatter(self._Ym.A[0], self._YXm.A[1])
+            ax.set_title(f'{self._Xcol[0]} Y')
+            ax.plot(self._frml, self._YXm.A[1], label=self._frml_str)
+
+    def getPredict(self, newXcol):
+        assert  (len(newXcol) == len(self._Xcol) &
+                 len())
