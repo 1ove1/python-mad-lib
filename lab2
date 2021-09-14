@@ -1,0 +1,199 @@
+import numpy as np
+import pandas as pd
+import math
+
+#     *****************************
+# Вычисление описательных зарактеристик (4.2)
+
+def getDefStat(frame):
+    temp = pd.DataFrame(frame.mean(), columns = ['MEAN'])
+    temp['STD'] = frame.std()
+    temp['VAR'] = 100*temp['STD']/temp['MEAN']
+    temp['SKEW'] = frame.skew()
+    temp['KURTOSIS'] = frame.kurtosis()
+    return np.round(temp,3)
+
+def getErr(frame, n):
+    sdskew = ( 6 * (n - 1) / ( (n + 1) * (n + 3) ) )**0.5
+    sdkurtosis = ( 24 * n * (n - 2) * (n - 3) / ( ( (n - 1)**2 ) * (n + 3) * (n + 5) ) )**0.5
+    tmp = {'SDSKEW': sdskew, 'SDKURTOSIS': sdkurtosis}
+    return np.round(pd.DataFrame(tmp, index = ['RES']),3)
+    
+
+# Анализ по 4-ём критериям (4.3)
+def getCritAnalyz(frame, n):
+    temp = pd.DataFrame((100*frame.std()/frame.mean())<33, columns = ['1 КРИТЕРИЙ'])
+    sdskew = ( 6 * (n - 1) / ( (n + 1) * (n + 3) ) )**0.5
+    sdkurtosis = ( 24 * n * (n - 2) * (n - 3) / ( ( (n - 1)**2 ) * (n + 3) * (n + 5) ) )**0.5
+    temp['2 КРИТЕРИЙ'] = (abs(frame.skew()/sdskew) < 2) & (abs(frame.kurtosis()/sdkurtosis) < 2)
+    temp['3 КРИТЕРИЙ'] = abs(frame.mad()/frame.std() - 0.7979) < (0.4/(n**0.5))
+    var = frame.max() - frame.min()
+#     for range n = 20!
+    temp['4 КРИТЕРИЙ'] = (var / frame.std() > 3.180) & (var / frame.std() < 4.490)
+    return temp
+
+#     *****************************
+# Пятый критерий (4.4)
+class Get5Crit:
+    
+    def __init__(self, frame):
+        tempCount = pd.DataFrame(data=None, columns=frame.columns, index = ['1', '2', '3']) 
+        tempPrecent = pd.DataFrame(data=None, columns=frame.columns, index = ['1', '2', '3']) 
+        tempMinMax = pd.DataFrame(data=None, columns=frame.columns, index = ['1', '2', '3']) 
+        
+        self.__minmax = []
+        count = []
+        
+        for row in frame:
+            for i in 1, 2, 3:
+                count.append( frame[row].where( self.__cond(frame[row], i) ).count())
+                
+            tempMinMax[row] = self.__minmax
+            tempCount[row] = count
+            tempPrecent[row] = np.array(count) * 100 / frame[row].count()
+            count = []
+            self.__minmax = []
+        self.__Count = tempCount
+        self.__Precent = tempPrecent
+        self.__MinMax = tempMinMax
+                                                   
+    def count(self):
+        return np.round(self.__Count, 3)
+    
+    def precent(self):
+        return np.round(self.__Precent, 3)
+        
+    def minmax(self):
+        return self.__MinMax
+        
+    def __cond(self, row, i):
+        mean = row.mean()
+        sig = row.std()
+        min = np.round(mean - sig * i, 3)
+        max = np.round(mean + sig * i, 3)
+        self.__minmax.append([f'{min}, {max}'])
+        return ( ( row > (mean - sig * i) ) & (row < (mean + sig * i) ) )
+
+#     *****************************
+# Коэффициент корреляции (4.5)
+
+class CorrKoef:
+    
+    _corr = pd.DataFrame(data = None, index = ['Коэф Корр'])
+    
+    def __init__(self, frame, y):
+        count = []
+        for row in frame:
+            if not (frame[row].equals(y)):
+                self._corr[row] = self.__pearson_def(frame[row], y)
+    
+    def getcorr(self):
+        return self._corr
+    
+    def __pearson_def(self, x, y):
+        assert len(x) == len(y)
+        n = len(x)
+        assert n > 0
+        avg_x = self.__average(x)
+        avg_y = self.__average(y)
+        diffprod = 0
+        xdiff2 = 0
+        ydiff2 = 0
+        for idx in range(n):
+            if (x[idx] == x[idx]):
+                xdiff = x[idx] - avg_x
+                ydiff = y[idx] - avg_y
+                diffprod += xdiff * ydiff
+                xdiff2 += xdiff * xdiff
+                ydiff2 += ydiff * ydiff
+        return diffprod / (xdiff2 * ydiff2)**0.5
+    
+    @staticmethod
+    def __average(x):
+        assert len(x) > 0
+        sumx = 0
+        lengt = 0
+        for elem in x:
+            if (elem == elem): # Проверка на NaN
+                lengt += 1
+                sumx += elem
+        return float(sumx) / lengt
+
+    
+#     *****************************
+# Коэф. Стьюдента (4.6)
+
+class CoefStud(CorrKoef):
+    
+    
+    def getstud(self, n):
+        temp = pd.DataFrame(data = None, index = ['Коэф Стьюд'])
+        rval = super()._corr
+        for row in rval:
+            temp[row] = (self.__stud(rval[row].iloc[0], n - 1))
+        return (temp)
+    
+    @staticmethod
+    def __stud(r, n):
+        return (r / (1 - r**2)**0.5) * (n - 2)**0.5
+    
+#     *****************************
+# Доверительный интервал (4.7)
+
+class DovInter:
+    
+    _Err = pd.DataFrame(data=None, index = ['Ср Ошибка Корр']) 
+    _MinMax = pd.DataFrame(data=None, index = ['Дов Интервал']) 
+    
+    def __init__(self, rval, tval, n):
+        assert rval.size == tval.size
+        
+        for row in rval:
+            self._Err[row] = (self.__errcor(rval[row].iloc[0], n))
+            self._MinMax[row] = (self.__interv(rval[row].iloc[0], tval[row].iloc[0], self._Err[row].iloc[0]))    
+                                                   
+    def getinter(self):
+        return np.round(self._MinMax, 3)
+        
+    def geterr(self):
+        return np.round(self._Err, 3)
+        
+    @staticmethod
+    def __interv(r, t, sig):
+        left = np.round(r - t * sig, 3)
+        right = np.round(r + t * sig, 3)
+        return f'[{left}, {right}]'
+    
+    @staticmethod
+    def __errcor(r, n):
+        return ((1 - r**2) / (n - 2))**0.5
+    
+    
+#     *****************************
+# Оценка существенности через Z (4.8)
+
+class ZValue:
+    
+    _Data = pd.DataFrame(data=None, index = ['Z', 'Mz', 'Z/Mz']) 
+    
+    def __init__(self, rval, n):
+        
+        for row in rval:
+            z = self.__Z(rval[row].iloc[0])
+            mz = self.__Mz(n)
+            self._Data[row] = {z,
+                               mz,
+                               z/mz}
+                                                   
+    def get(self):
+        return np.round(self._Data, 3)
+
+    @staticmethod
+    def __Z(r):
+        return (0.5 * math.log((1 + r) / (1 - r))) 
+    
+    @staticmethod
+    def __Mz(n):
+        return 1 / (n - 3)**0.5
+    
+    
